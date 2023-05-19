@@ -89,6 +89,8 @@ class Maid(object):
             curledSheets = openai.Completion.create(
                 engine='text-davinci-003',  # Determines the quality, speed, and cost.
                 temperature=v['temp'],  # Level of creativity in the response
+                presence_penalty=v['presence'],  # penalize for tokens that are repetitive in responses
+                frequency_penalty=v['frequency'],  # reduce likelihood of repetition from source
                 prompt="Rewrite the following passage in the style of {}, with undertones of {}. "
                        "It should include {} spelling errors, and between {} words use double spaces. Include the following words: {}. Here is the passage: {}".format(
                     v['authors'], v['moods'], v['spellingErrors'], v['spacesErrors'], v['includeWords'], v['sourceML']),  # What the user typed in
@@ -100,17 +102,20 @@ class Maid(object):
             print(curledSheets)
             chamberWindow['finalML'].update("\n{}".format(curledSheets.choices[0].text), append=True)
 
-            if v['generateImages']:
-                response = openai.Image.create(
-                    prompt="{}".format(curledSheets.choices[0].text),
-                    n=v['generateImagesCount'],
-                    size="1024x1024",
-                    response_format= "b64_json"
-                )
-                image_b64 = response['data'][0]
 
-        else:
-            print("The Maid has not Arrived Yet...")
+            response2 = openai.Image.create(
+                prompt="{}".format(curledSheets.choices[0].text),
+                n=int(v['generateImagesCount']),
+                size="1024x1024",
+                response_format= "b64_json"
+            )
+
+            image_b64 = response2['data'][0]['b64_json']
+            print(image_b64)
+            chamberWindow['image'].update(data=image_b64, subsample=4)
+            chamberWindow.refresh()
+
+
 
     def curlSheetsAgain(self):
         if self.connected:
@@ -118,6 +123,8 @@ class Maid(object):
             curledSheets = openai.Completion.create(
                 engine='text-davinci-003',  # Determines the quality, speed, and cost.
                 temperature=v['temp'],  # Level of creativity in the response
+                presence_penalty=v['presence'],  # penalize for tokens that are repetitive in responses
+                frequency_penalty=v['frequency'],  # reduce likelihood of repetition from source
                 prompt="Rewrite that again differently, add a bit of variation",  # What the user typed in
                 max_tokens=int(v['tokens']),  # Maximum tokens in the prompt AND response
                 n=int(v['iterations']),  # The number of completions to generate
@@ -144,11 +151,13 @@ sheets = [[
                 [sg.Checkbox("", pad=(0,0), default=False), sg.Text("Exclude Words", border_width=2)],
                 [sg.Checkbox("", pad=(0,0), default=False, disabled=True), sg.Text("Author Age", border_width=2, text_color="gray")],
                 [sg.Checkbox("", pad=(0,0), default=True), sg.Text("Decent - Wild", border_width=2)],
+                [sg.Checkbox("", pad=(0,0), default=True), sg.Text("Presence", border_width=2)],
+                [sg.Checkbox("", pad=(0,0), default=True), sg.Text("Frequency", border_width=2)],
                 [sg.Checkbox("", pad=(0,0), default=True), sg.Text("Maximum Tokens", border_width=2)],
                 [sg.Checkbox("", pad=(0,0), default=False), sg.Text("Spelling Errors", border_width=1)],
                 [sg.Checkbox("", pad=(0,0), default=False), sg.Text("Spaces Errors", border_width=1)],[
                 sg.Checkbox("", pad=(0,0), default=False), sg.Text("Append to Query", border_width=0)],[
-                sg.Checkbox("Generate Response Images", pad=(0,0), default = False, key="generateImages")
+                sg.Checkbox("Generate Response Images", pad=(0,0), default = True, key="generateImages")
                            ]], element_justification="top", vertical_alignment="top"),
 
                 # INPUTS
@@ -161,9 +170,15 @@ sheets = [[
                 [sg.InputText("", border_width=0, key = "excludeWords")],
                 [sg.Slider(default_value=33, range=(4, 103), size=(35, 6),
                            orientation="horizontal", border_width=0, pad=(0,0), key = "authorAge", disabled=True, text_color="gray")],
-                [sg.Slider(default_value=1, range=(0, 2), size=(35, 6),
+                [sg.Slider(default_value=1, range=(0.0, 2.0), size=(35, 6), resolution=.1,
                            orientation="horizontal", border_width=0, pad=(0,0), key = "temp")],
-                [sg.Slider(default_value=150, range=(1, 500), size=(35, 6),
+
+                [sg.Slider(default_value=0, range=(-2.0, 2.0), size=(35, 6), resolution=.1,
+                                           orientation="horizontal", border_width=0, pad=(0,0), key = "presence")],
+                [sg.Slider(default_value=0, range=(-2.0, 2.0), size=(35, 6), resolution=.1,
+                                           orientation="horizontal", border_width=0, pad=(0,0), key = "frequency")],
+
+                [sg.Slider(default_value=150, range=(1, 2048), size=(35, 6),
                            orientation="horizontal", border_width=0, pad=(0,0), key = "tokens")],
                 [sg.DropDown(["No", "A few", "Some", "A lot of"], default_value="No", key = "spellingErrors")],
                 [sg.DropDown(["No", "A few", "Some", "A lot of"], default_value="No", key = "spacesErrors")],
@@ -171,7 +186,9 @@ sheets = [[
                 [sg.Slider(default_value=1, range=(1, 10), size=(35,6), orientation="horizontal", key = "generateImagesCount")],
                 []
 
-                           ], vertical_alignment="top")], [sg.Multiline("", size=(74,34), key = "sourceML")]], vertical_alignment="top"),
+                           ], vertical_alignment="top")], [sg.Multiline("", size=(74,15), key = "sourceML")],[
+                sg.Image(key = "image", size = (5,5), data="", subsample=4)
+                ]], vertical_alignment="top"),
 
 
                 sg.Column([[sg.Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML")],[
@@ -192,10 +209,9 @@ while True:
     b, v, = chamberWindow.Read()
 
     if b == "clean":
-        try:
-            maid.curlSheets()
-        except:
-            print("The Maid has not Arrived Yet...")
+
+        maid.curlSheets()
+
 
     if b == "Reclean":
         try:
