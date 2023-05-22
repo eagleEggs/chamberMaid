@@ -12,7 +12,7 @@ import PySimpleGUI as sg
 
 sg.theme("DarkGrey11")
 
-authorReferenceList = ["Oscar Wilde", "Anne Rice", "Nathaniel Hawthorne", "Stephen King", "Voltaire", "C.S. Lewis",
+authorReferenceList = ["No One Specific", "Oscar Wilde", "Anne Rice", "Nathaniel Hawthorne", "Stephen King", "Voltaire", "C.S. Lewis",
                       "Shakespeare", "Mary Shelley", "Tolstoy", "Plato", "Tolkien", "J.K. Rowling", "Frank Herbert",
                        "Robert Louis Stevenson", "Dan Simmons", "Ayn Rand", "Marcus Aurelius", "R.L. Stine",
                        "Roald Dahl"]
@@ -102,17 +102,31 @@ class Maid(object):
             print(curledSheets)
             chamberWindow['finalML'].update("\n{}".format(curledSheets.choices[0].text), append=True)
 
-
+            # for eachImage in range(0, v['generateImagesCount'])
             response2 = openai.Image.create(
                 prompt="{}".format(curledSheets.choices[0].text),
                 n=int(v['generateImagesCount']),
                 size="1024x1024",
                 response_format= "b64_json"
+                # TODO: Add input for custom additions for the image prompt - OFten the returned content is too long
+                # TODO: Check for 'too long' error, and add option to trim it down or provide custom prompt for image
             )
 
-            image_b64 = response2['data'][0]['b64_json']
-            print(image_b64)
-            chamberWindow['image'].update(data=image_b64, subsample=4)
+            for eachImage in range(1, int(v['generateImagesCount'] + 1)):
+                print(eachImage)
+                image_b64 = response2['data'][eachImage - 1]['b64_json']
+                # print(image_b64)
+                chamberWindow['image_{}'.format(eachImage)].update(data=image_b64, subsample=4)
+                # chamberWindow['imageColumn'].contents_changed()
+                # chamberWindow.refresh()
+            # TODO: Create a scrolling area to scroll through created and loaded images - New should pop to left
+            # TODO: If you select the image, it should attribute itself to the page / chapter you're on
+            # TODO: Selecting the image should insert code to load it during PDF/HTML generation
+
+                with open("savedBase64Images2.txt", "a+") as imageFile:
+                    imageFile.write("{}\n\n".format(image_b64))
+
+            chamberWindow['imageColumn'].contents_changed()
             chamberWindow.refresh()
 
 
@@ -136,13 +150,49 @@ class Maid(object):
         else:
             print("The Maid has not Arrived Yet...")
 
+# TODO: Create PDF/HTML Gen
+# TODO: Create Django backend / api to build out the books
+
 dresser = [[sg.Column([[sg.Text("Organization ID:"), sg.InputText("Use Environment Variable 'chamberOrg", key = "org")],
                        [sg.Text("API Key           "), sg.InputText("Use Environment Variable 'chamberKey'")],
                        [sg.Button("Connect to API", key = "connect")]])]]
-sheets = [[
-                # TEXTS
+
+charBuilderLoadFrame = [[sg.Text("Character Name", size = (20,1), border_width=0), sg.InputText("")]]
+charBuilder = [[
+                # CHAR BUILDER TAB
                 sg.Column([[sg.Column([[
-                sg.Column([[sg.Checkbox("", pad=(0,0), default=True), sg.Text("Author Reference", size = (20,1), border_width=0)],
+                sg.Column([[
+
+                sg.Frame("Load Character", charBuilderLoadFrame)
+                ]])
+
+                ]])
+
+                ]])
+
+                ]]
+
+envBuilderLoadFrame = [[sg.Text("Environment Name", size = (20,1), border_width=0), sg.InputText("")]]
+
+envBuilder = [[
+                # CHAR BUILDER TAB
+                sg.Column([[sg.Column([[
+                sg.Column([[
+
+                sg.Frame("Load Environment", envBuilderLoadFrame)
+                ]])
+
+                ]])
+
+                ]])
+
+                ]]
+testObjectData = ["None", "Claudia", "Sarah", "Andrew"]
+sheets = [[
+                # MAIN TAB (API CONTROLS, SOURCE AND RETURNED DATA)
+                sg.Column([[sg.Column([[
+                sg.Column([[sg.Text("       Loaded Object")],
+                [sg.Checkbox("", pad=(0,0), default=True), sg.Text("Author Reference", size = (20,1), border_width=0)],
                 [sg.Checkbox("", pad=(0,0), default=True), sg.Text("Moods", size = (20,1), border_width=0)],
                 # [sg.Checkbox("", pad=(0,0), default=True), sg.Text("Reference Text", size = (20,1), border_width=0)],
                 [sg.Checkbox("", pad=(0,0), default=False), sg.Text("Iterations", border_width=0)],
@@ -161,8 +211,10 @@ sheets = [[
                            ]], element_justification="top", vertical_alignment="top"),
 
                 # INPUTS
-                sg.Column([[sg.DropDown(authorReferenceList, key = "authors", default_value="Anne Rice")],
-                [sg.InputText("Dark, Sorrowful, and Despair", border_width=0, key = "moods")],
+                sg.Column([[
+                sg.DropDown(testObjectData, default_value="None")],
+                [sg.DropDown(authorReferenceList, key = "authors", default_value="Anne Rice")],
+                [sg.InputText("Nothing Specific", border_width=0, key = "moods")],
                 # [sg.InputText("", border_width=0)],
                 [sg.DropDown([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], default_value=1, key = "iterations")],
                 [sg.DropDown([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], default_value=0, key = 'rewrites')],
@@ -183,11 +235,15 @@ sheets = [[
                 [sg.DropDown(["No", "A few", "Some", "A lot of"], default_value="No", key = "spellingErrors")],
                 [sg.DropDown(["No", "A few", "Some", "A lot of"], default_value="No", key = "spacesErrors")],
                 [sg.InputText("Do not repeat exactly what I've written in the passage. Write it in an illustrious manner, add deep meaningful words but do not use the same meaningful word more than once..", border_width=0, key = "queryAppend")],
-                [sg.Slider(default_value=1, range=(1, 10), size=(35,6), orientation="horizontal", key = "generateImagesCount")],
+                [sg.Slider(default_value=1, range=(1, 3), size=(35,6), orientation="horizontal", key = "generateImagesCount")],
                 []
+                # TODO: Add button for creating a new chapter / and workflow to load and switch chapters and book titles
+                           # TODO: Title and chapter should be a dropdown of historical saves - Load button loads the selection
+                           ], vertical_alignment="top")], [sg.Multiline("", size=(74,10), key = "sourceML")],
 
-                           ], vertical_alignment="top")], [sg.Multiline("", size=(74,15), key = "sourceML")],[
-                sg.Image(key = "image", size = (5,5), data="", subsample=4)
+                    [sg.Column([[sg.Image(key = "image_1", size = (5,5), data="", subsample=4),
+                                 sg.Image(key = "image_2", size = (5,5), data="", subsample=4),
+                                 sg.Image(key = "image_3", size = (5,5), data="", subsample=4)]], key="imageColumn", size=(524, 230), expand_x=True, expand_y=True, scrollable=True, vertical_scroll_only=False)
                 ]], vertical_alignment="top"),
 
 
@@ -200,9 +256,14 @@ sheets = [[
 
 ]]
 
-topDrawer = [[sg.Column([[sg.Text("Title:"), sg.InputText(""), sg.Button("Clean", key = "clean"), sg.Button("Reclean", key = "Reclean"),sg.Button("Save"), sg.Button("Load"), sg.Button("Save Session", key = "ss"), sg.Button("Load Session", key="ls"), sg.Button("Connect", key="connect")]], element_justification="right", justification="right")]]
+topDrawer = [[sg.Column([[sg.Text("Title:"), sg.InputText("", border_width=0, size=(40,1)),
+                          sg.Text("Chapter:"), sg.InputText("", size=(10,1), border_width=0), sg.Button("New Chapter", key = "newChapter", border_width=0),
+                          sg.Button("Clean", key = "clean", border_width=0), sg.Button("Reclean", key = "Reclean", border_width=0),
+                          sg.Button("Save", border_width=0), sg.Button("Load", border_width=0), sg.Button("Save Session", key = "ss", border_width=0),
+                          sg.Button("Load Session", key="ls", border_width=0), sg.Button("Connect", key="connect", border_width=0),
+                          sg.Checkbox("Save Concurrently", default=True, key="saveAll")]], element_justification="right", justification="left")]]
 
-tabLayout = [[topDrawer, sg.TabGroup([[sg.Tab("Sheets", sheets)]])]]
+tabLayout = [[topDrawer, sg.TabGroup([[sg.Tab("Sheets", sheets), sg.Tab("Characters", charBuilder), sg.Tab("Environments", envBuilder)]])]]
 chamberWindow = sg.Window(title = "Chamber Maid", layout = tabLayout, location = (0,0), finalize=True)
 
 while True:
