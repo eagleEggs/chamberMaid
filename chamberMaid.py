@@ -9,6 +9,13 @@ import os
 import uuid
 import requests
 import PySimpleGUI as sg
+import tkinter as tk
+import warnings
+from PIL import Image
+from io import BytesIO
+import base64
+
+import chamberPortraits  # GUI images
 
 sg.theme("DarkGrey11")
 
@@ -102,32 +109,38 @@ class Maid(object):
             print(curledSheets)
             chamberWindow['finalML'].update("\n{}".format(curledSheets.choices[0].text), append=True)
 
-            # for eachImage in range(0, v['generateImagesCount'])
-            response2 = openai.Image.create(
-                prompt="{}".format(curledSheets.choices[0].text),
-                n=int(v['generateImagesCount']),
-                size="1024x1024",
-                response_format= "b64_json"
-                # TODO: Add input for custom additions for the image prompt - OFten the returned content is too long
-                # TODO: Check for 'too long' error, and add option to trim it down or provide custom prompt for image
-            )
+            if chamberWindow['generateImages']:
+                print("Generate Images Set to True, Generating...")
+                # for eachImage in range(0, v['generateImagesCount'])
+                response2 = openai.Image.create(
+                    prompt="{}".format(curledSheets.choices[0].text),
+                    n=int(v['generateImagesCount']),
+                    size="1024x1024",
+                    response_format= "b64_json"
+                    # TODO: Add input for custom additions for the image prompt - OFten the returned content is too long
+                    # TODO: Check for 'too long' error, and add option to trim it down or provide custom prompt for image
+                )
 
-            for eachImage in range(1, int(v['generateImagesCount'] + 1)):
-                print(eachImage)
-                image_b64 = response2['data'][eachImage - 1]['b64_json']
-                # print(image_b64)
-                chamberWindow['image_{}'.format(eachImage)].update(data=image_b64, subsample=4)
-                # chamberWindow['imageColumn'].contents_changed()
-                # chamberWindow.refresh()
-            # TODO: Create a scrolling area to scroll through created and loaded images - New should pop to left
-            # TODO: If you select the image, it should attribute itself to the page / chapter you're on
-            # TODO: Selecting the image should insert code to load it during PDF/HTML generation
+                for eachImage in range(1, int(v['generateImagesCount'] + 1)):
+                    print(eachImage)
+                    image_b64 = response2['data'][eachImage - 1]['b64_json']
+                    # print(image_b64)
+                    chamberWindow['image_{}'.format(eachImage)].update(data=image_b64, subsample=4)
+                    # chamberWindow['imageColumn'].contents_changed()
+                    # chamberWindow.refresh()
+                    chamberWindow[f'image_{eachImage}'].bind("<Double-Button-1>", " Double")
+                # TODO: Create a scrolling area to scroll through created and loaded images - New should pop to left
+                # TODO: If you select the image, it should attribute itself to the page / chapter you're on
+                # TODO: Selecting the image should insert code to load it during PDF/HTML generation
 
-                with open("savedBase64Images2.txt", "a+") as imageFile:
-                    imageFile.write("{}\n\n".format(image_b64))
+                    with open("savedBase64Images2.txt", "a+") as imageFile:
+                        imageFile.write("{}\n\n".format(image_b64))
 
-            chamberWindow['imageColumn'].contents_changed()
-            chamberWindow.refresh()
+                chamberWindow['imageColumn'].contents_changed()
+                chamberWindow.refresh()
+
+            else:
+                print("Generate Images Not Enabled, Bypassing...")
 
 
 
@@ -149,6 +162,71 @@ class Maid(object):
             chamberWindow['finalML'].update("\n{}".format(curledSheets.choices[0].text), append=True)
         else:
             print("The Maid has not Arrived Yet...")
+
+font1 = ('New Times Roman', 10)
+font2 = ('New Times Roman', 48)
+
+sg.set_options(font=font1)
+
+class Photo(int):
+    # Keep tk.Photoshop objects by index key to avoid memory leakage as same image used again and again.
+    images = {}
+
+    def __new__(cls, source=None, filename=None, data=None):
+        """
+        :param source:   A filename or a base64 bytes. Will automatically detect the type and fill in filename or data for you.
+        :type source:    str | bytes | None
+        :param filename: image filename if there is a button image. GIFs and PNGs only.
+        :type filename:  str | None
+        :param data:     Raw or Base64 representation of the image to put on button. Choose either filename or data
+        :type data:      bytes | str | None
+        """
+        if source is not None:
+            if isinstance(source, bytes):
+                data = source
+            elif isinstance(source, str):
+                filename = source
+            else:
+                warnings.warn('Image element - source is not a valid type: {}'.format(type(source)), UserWarning)
+        if filename is not None:
+            photo = tk.PhotoImage(file=filename)
+        elif data is not None:
+            photo = tk.PhotoImage(data=data).subsample(4)
+
+
+            # photo = photo.subsample(2)
+        else:
+            warnings.warn('No option of source for PhotoImage', UserWarning)
+            return super().__new__(cls, -1)
+
+        index = 0
+        while index in Photo.images:
+            index += 1
+        Photo.images[index] = photo
+        print(Photo.images[index])
+        return  super().__new__(cls, index)
+
+class Multiline(sg.Multiline):
+
+    def image_create(self, index, key, align=None, padx=None, pady=None):
+        """
+        :param index: An index is a string used to indicate a particular place within a text, such as a place to insert characters or one endpoint of a range of characters to delete.
+        :type index:  str
+        :param key:   Specifies the key returned when Photo class initiated, image stored as Photo.images[key]
+        :type key:    int
+        :param align: If the image is not as tall as the line in which it is displayed, this option determines where the image is displayed in the line. Valid choices = 'top' (align the top of the image with the top of the line), 'center' (center the image within the range of the line), 'bottom' (align the bottom of the image with the bottom of the line's area) and 'baseline' (align the bottom of the image with the baseline of the line)
+        :type align:  str | None
+        :param padx:  Pixels specifies the amount of extra space to leave on each side of the embedded image.
+        :type padx:   int | None
+        :param pady:  Pixels specifies the amount of extra space to leave on the top and on the bottom of the embedded image.
+        :type pady:   int | None
+        :return:      A name unique to this instance of the image is returned. This name may then be used to refer to this image instance.
+        :rtype:       (str)
+        """
+        if key in Photo.images:
+            image = Photo.images[key]
+            name = self.widget.image_create(index, align=align, image=image, padx=padx, pady=pady)
+            return name
 
 # TODO: Create PDF/HTML Gen
 # TODO: Create Django backend / api to build out the books
@@ -188,6 +266,22 @@ envBuilder = [[
 
                 ]]
 testObjectData = ["None", "Claudia", "Sarah", "Andrew"]
+
+preface = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalMLpreface")]])]]
+cover = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalMLcover")]])]]
+introSynopsis = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalMLintroSynopsis")]])]]
+chapterTab1 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML")]])]]
+chapterTab2 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML2")]])]]
+chapterTab3 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML3")]])]]
+chapterTab4 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML4")]])]]
+chapterTab5 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML5")]])]]
+chapterTab6 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML6")]])]]
+chapterTab7 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML7")]])]]
+chapterTab8 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML8")]])]]
+chapterTab9 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML9")]])]]
+chapterTab10 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML10")]])]]
+prologue = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "prologue")]])]]
+
 sheets = [[
                 # MAIN TAB (API CONTROLS, SOURCE AND RETURNED DATA)
                 sg.Column([[sg.Column([[
@@ -207,7 +301,8 @@ sheets = [[
                 [sg.Checkbox("", pad=(0,0), default=False), sg.Text("Spelling Errors", border_width=1)],
                 [sg.Checkbox("", pad=(0,0), default=False), sg.Text("Spaces Errors", border_width=1)],[
                 sg.Checkbox("", pad=(0,0), default=False), sg.Text("Append to Query", border_width=0)],[
-                sg.Checkbox("Generate Response Images", pad=(0,0), default = True, key="generateImages")
+                sg.Checkbox("Generate Response Images", pad=(0,0), default = True, key="generateImages")],
+                [sg.Checkbox("", pad=(0,0), default=False), sg.Text("Session Wipe", border_width=0)
                            ]], element_justification="top", vertical_alignment="top"),
 
                 # INPUTS
@@ -230,29 +325,43 @@ sheets = [[
                 [sg.Slider(default_value=0, range=(-2.0, 2.0), size=(35, 6), resolution=.1,
                                            orientation="horizontal", border_width=0, pad=(0,0), key = "frequency")],
 
-                [sg.Slider(default_value=150, range=(1, 2048), size=(35, 6),
+                [sg.Slider(default_value=50, range=(1, 2048), size=(35, 6),
                            orientation="horizontal", border_width=0, pad=(0,0), key = "tokens")],
                 [sg.DropDown(["No", "A few", "Some", "A lot of"], default_value="No", key = "spellingErrors")],
                 [sg.DropDown(["No", "A few", "Some", "A lot of"], default_value="No", key = "spacesErrors")],
                 [sg.InputText("Do not repeat exactly what I've written in the passage. Write it in an illustrious manner, add deep meaningful words but do not use the same meaningful word more than once..", border_width=0, key = "queryAppend")],
-                [sg.Slider(default_value=1, range=(1, 3), size=(35,6), orientation="horizontal", key = "generateImagesCount")],
+                [sg.Slider(default_value=1, range=(1, 6), size=(35,6), orientation="horizontal", key = "generateImagesCount")],
+                [sg.Text("Curr:"), sg.Text("1234567890", key = "sessionID"), sg.Text("Wipe:"),
+                 sg.DropDown(["1234567890", "0987654321", "123456098765", "1029384756"], default_value="1234567890", key = "sessionIDOverride")],
                 []
                 # TODO: Add button for creating a new chapter / and workflow to load and switch chapters and book titles
                            # TODO: Title and chapter should be a dropdown of historical saves - Load button loads the selection
                            ], vertical_alignment="top")], [sg.Multiline("", size=(74,10), key = "sourceML")],
 
-                    [sg.Column([[sg.Image(key = "image_1", size = (5,5), data="", subsample=4),
-                                 sg.Image(key = "image_2", size = (5,5), data="", subsample=4),
-                                 sg.Image(key = "image_3", size = (5,5), data="", subsample=4)]], key="imageColumn", size=(524, 230), expand_x=True, expand_y=True, scrollable=True, vertical_scroll_only=False)
+                    [sg.Column([[sg.Image(key = "image_1", data=chamberPortraits.maid, subsample=4, enable_events=True),
+                                 sg.Image(key = "image_2", data=chamberPortraits.unicorn, subsample=4, enable_events=True)],
+                                 [sg.Image(key = "image_3", data=chamberPortraits.snails, subsample=4, enable_events=True),
+                                  sg.Image(key = "image_4", data=chamberPortraits.snails, subsample=4, enable_events=True)],
+                                [sg.Image(key = "image_5", data=chamberPortraits.snails, subsample=4, enable_events=True),
+                                 sg.Image(key = "image_6", data=chamberPortraits.snails, subsample=4, enable_events=True)]], key="imageColumn", size=(524, 230), expand_x=True, expand_y=True, scrollable=True, vertical_scroll_only=True)
                 ]], vertical_alignment="top"),
 
-
-                sg.Column([[sg.Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML")],[
+                sg.Column([[sg.TabGroup([[sg.Tab("Cover", cover),sg.Tab("Synopsis", introSynopsis), sg.Tab("Preface", preface), sg.Tab("Chapter 1", chapterTab1), sg.Tab("Chapter 2", chapterTab2), sg.Tab("Chapter 3", chapterTab3)
+                                          , sg.Tab("Chapter 4", chapterTab4)
+                                          , sg.Tab("Chapter 5", chapterTab5)
+                                          , sg.Tab("Chapter 6", chapterTab6)
+                                          , sg.Tab("Chapter 7", chapterTab7)
+                                          , sg.Tab("Chapter 8", chapterTab8)
+                                          , sg.Tab("Chapter 9", chapterTab9)
+                                          , sg.Tab("Chapter 10", chapterTab10), sg.Tab("Prologue", prologue)]])],
+                [sg.Text("Words/Pages/Images: 0000/0000/0000", justification="right")],[
+                # sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML")],[
                 # sg.Text("Font Size:"), sg.Slider(default_value=12, range=(3, 22), orientation="horizontal",
                 #                                 change_submits=True, key = "fontSize")
                 ]])
                 ]])],[
 
+                # TODO: Add numbers to multiline, as well as image insertion
 
 ]]
 
@@ -264,15 +373,55 @@ topDrawer = [[sg.Column([[sg.Text("Title:"), sg.InputText("", border_width=0, si
                           sg.Checkbox("Save Concurrently", default=True, key="saveAll")]], element_justification="right", justification="left")]]
 
 tabLayout = [[topDrawer, sg.TabGroup([[sg.Tab("Sheets", sheets), sg.Tab("Characters", charBuilder), sg.Tab("Environments", envBuilder)]])]]
-chamberWindow = sg.Window(title = "Chamber Maid", layout = tabLayout, location = (0,0), finalize=True)
+chamberWindow = sg.Window(title = "Chamber Maid", layout = tabLayout, location = (0,0), border_depth=0, element_padding=1, finalize=True)
+
+multiline = chamberWindow['finalML']
 
 while True:
     b, v, = chamberWindow.Read()
 
     if b == "clean":
-
         maid.curlSheets()
 
+    if b.startswith("image_1"):
+        # index = int(b.split()[-1])
+        # chamberWindow['finalML'].update("\n%__image_{}__%\n".format("IMAGE_B64_46572457283056"), append=True)
+        # newB = str(b).replace(" Double", "")
+        # print(chamberWindow[newB])
+
+        # print(chamberWindow["image_1"].Data)
+        photo = Photo(data=chamberWindow["image_1"].Data)
+        # for align in (tk.TOP, tk.CENTER, tk.BOTTOM, tk.BASELINE):
+            # multiline.update('Hello', append=True, font=font2)
+            # """
+            # The insert mark tk.INSERT represents the position of the insertion
+            # cursor, and the insertion cursor will automatically be drawn at this
+            # point whenever the text widget has the input focus.
+            # """
+        name = multiline.image_create(tk.INSERT, photo, padx=0)
+            # multiline.update('World\n', append=True, font=font2)
+    if b.startswith("image_2"):
+        photo = Photo(data=chamberWindow["image_2"].Data)
+        #for align in (tk.TOP, tk.CENTER, tk.BOTTOM, tk.BASELINE):
+            # multiline.update('Hello', append=True, font=font2)
+            # """
+            # The insert mark tk.INSERT represents the position of the insertion
+            # cursor, and the insertion cursor will automatically be drawn at this
+            # point whenever the text widget has the input focus.
+            # """
+        name = multiline.image_create(tk.INSERT, photo, padx=0)
+            # multiline.update('World\n', append=True, font=font2)
+    if b.startswith("image_3"):
+        photo = Photo(data=chamberWindow["image_3"].Data)
+        # for align in (tk.TOP, tk.CENTER, tk.BOTTOM, tk.BASELINE):
+        #     # multiline.update('Hello', append=True, font=font2)
+        #     """
+        #     The insert mark tk.INSERT represents the position of the insertion
+        #     cursor, and the insertion cursor will automatically be drawn at this
+        #     point whenever the text widget has the input focus.
+        #     """
+        name = multiline.image_create(tk.INSERT, photo, padx=0)
+            # multiline.update('World\n', append=True, font=font2)
 
     if b == "Reclean":
         try:
