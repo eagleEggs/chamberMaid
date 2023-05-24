@@ -14,6 +14,8 @@ import warnings
 from PIL import Image
 from io import BytesIO
 import base64
+import tiktoken
+import decimal
 
 import chamberPortraits  # GUI images
 
@@ -90,6 +92,44 @@ class Maid(object):
         modelList = openai.Model.list()
         return modelList
 
+    def num_tokens_from_string(self, texts, encoding_name):
+        """Returns the number of tokens in a text string."""
+        encoding = tiktoken.get_encoding(encoding_name)
+        num_tokens = len(encoding.encode(texts))
+        return num_tokens
+
+    def num_tokens_from_messages(self, messages, model="gpt-3.5-turbo-0301"):
+        """Returns the number of tokens used by a list of messages."""
+        try:
+            encoding = tiktoken.encoding_for_model(model)
+        except KeyError:
+            print("Warning: model not found. Using cl100k_base encoding.")
+            encoding = tiktoken.get_encoding("cl100k_base")
+        if model == "gpt-3.5-turbo":
+            print("Warning: gpt-3.5-turbo may change over time. Returning num tokens assuming gpt-3.5-turbo-0301.")
+            return self.num_tokens_from_messages(messages, model="gpt-3.5-turbo-0301")
+        elif model == "gpt-4":
+            print("Warning: gpt-4 may change over time. Returning num tokens assuming gpt-4-0314.")
+            return self.num_tokens_from_messages(messages, model="gpt-4-0314")
+        elif model == "gpt-3.5-turbo-0301":
+            tokens_per_message = 4  # every message follows <|start|>{role/name}\n{content}<|end|>\n
+            tokens_per_name = -1  # if there's a name, the role is omitted
+        elif model == "gpt-4-0314":
+            tokens_per_message = 3
+            tokens_per_name = 1
+        else:
+            raise NotImplementedError(
+                f"""num_tokens_from_messages() is not implemented for model {model}. See https://github.com/openai/openai-python/blob/main/chatml.md for information on how messages are converted to tokens.""")
+        num_tokens = 0
+        for message in messages:
+            num_tokens += tokens_per_message
+            for key, value in message.items():
+                num_tokens += len(encoding.encode(value))
+                if key == "name":
+                    num_tokens += tokens_per_name
+        num_tokens += 3  # every reply is primed with <|start|>assistant<|message|>
+        return num_tokens
+
     def curlSheets(self):
         if self.connected:
             print("Cleaning Chamber...")
@@ -119,6 +159,7 @@ class Maid(object):
                     response_format= "b64_json"
                     # TODO: Add input for custom additions for the image prompt - OFten the returned content is too long
                     # TODO: Check for 'too long' error, and add option to trim it down or provide custom prompt for image
+                    # TODO: Get session ID and store it / pull up manually optional
                 )
 
                 for eachImage in range(1, int(v['generateImagesCount'] + 1)):
@@ -162,6 +203,9 @@ class Maid(object):
             chamberWindow['finalML'].update("\n{}".format(curledSheets.choices[0].text), append=True)
         else:
             print("The Maid has not Arrived Yet...")
+
+
+
 
 font1 = ('New Times Roman', 10)
 font2 = ('New Times Roman', 48)
@@ -207,6 +251,48 @@ class Photo(int):
         return  super().__new__(cls, index)
 
 class Multiline(sg.Multiline):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.ratio = 0
+        self.lines = 1
+
+    def initial(self, window, width=5, bg='#202020', fg='white', font=None):
+        self.window = window
+        self.line = sg.tk.Text(self.widget.master, width=3, height=self.Size[1], bg=bg, fg=fg, font=font)
+        self.line.pack(side='left', fill='y', expand=False, before=self.widget)
+        self.line.bindtags((str(self.line), str(window.TKroot), "all"))
+        self.line.tag_add("right", '1.0', "end")
+        self.line.tag_configure("right", justify='right')
+        self.line.delete('1.0', 'end')
+        self.line.insert('1.0', '1', 'right')
+        self.bind('<Configure>', '')
+        self.bind('<MouseWheel>', '')
+        self.vsb.configure(command=self.y_scroll)
+        window.refresh()
+        window.move_to_center()
+
+    def reset(self):
+        self.window.refresh()
+        new_ratio, _ = self.vsb.get()
+        new_lines = int(self.widget.index(sg.tk.END).split('.')[0]) - 1
+        if new_lines != self.lines:
+            self.lines = new_lines
+            text = '\n'.join([f'{i + 1}' for i in range(self.lines)])
+            self.line.delete('1.0', 'end')
+            self.line.insert('1.0', text)
+            self.line.tag_add("right", '1.0', "end")
+        if new_ratio != self.ratio:
+            self.ratio = new_ratio
+            self.line.yview_moveto(self.ratio)
+
+    def y_scroll(self, action, n, what=None):
+        if action == sg.tk.MOVETO:
+            self.widget.yview_moveto(n)
+            self.line.yview_moveto(n)
+        elif action == sg.tk.SCROLL:
+            self.widget.yview_scroll(n, what)
+            self.line.yview_scroll(n, what)
 
     def image_create(self, index, key, align=None, padx=None, pady=None):
         """
@@ -267,20 +353,34 @@ envBuilder = [[
                 ]]
 testObjectData = ["None", "Claudia", "Sarah", "Andrew"]
 
-preface = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalMLpreface")]])]]
-cover = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalMLcover")]])]]
-introSynopsis = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalMLintroSynopsis")]])]]
-chapterTab1 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML")]])]]
-chapterTab2 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML2")]])]]
-chapterTab3 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML3")]])]]
-chapterTab4 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML4")]])]]
-chapterTab5 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML5")]])]]
-chapterTab6 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML6")]])]]
-chapterTab7 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML7")]])]]
-chapterTab8 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML8")]])]]
-chapterTab9 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML9")]])]]
-chapterTab10 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML10")]])]]
-prologue = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "prologue")]])]]
+preface = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, sbar_width=20,
+        sbar_arrow_width=20, enable_events=True, pad=(0,0), key = "finalMLpreface")]])]]
+cover = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, sbar_width=20,
+        sbar_arrow_width=20, enable_events=True, pad=(0,0), key = "finalMLcover")]])]]
+introSynopsis = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, sbar_width=20,
+        sbar_arrow_width=20, enable_events=True, pad=(0,0), key = "finalMLintroSynopsis")]])]]
+chapterTab1 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, enable_events=True, sbar_width=20,
+        sbar_arrow_width=20, pad=(0,0), key = "finalML")]])]]
+chapterTab2 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, sbar_width=20,
+        sbar_arrow_width=20, enable_events=True, pad=(0,0), key = "finalML2")]])]]
+chapterTab3 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, sbar_width=20,
+        sbar_arrow_width=20, enable_events=True, pad=(0,0), key = "finalML3")]])]]
+chapterTab4 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, sbar_width=20,
+        sbar_arrow_width=20, enable_events=True, pad=(0,0), key = "finalML4")]])]]
+chapterTab5 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, sbar_width=20,
+        sbar_arrow_width=20, enable_events=True, pad=(0,0), key = "finalML5")]])]]
+chapterTab6 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, sbar_width=20,
+        sbar_arrow_width=20, enable_events=True, pad=(0,0), key = "finalML6")]])]]
+chapterTab7 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, sbar_width=20,
+        sbar_arrow_width=20, enable_events=True, pad=(0,0), key = "finalML7")]])]]
+chapterTab8 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, sbar_width=20,
+        sbar_arrow_width=20, enable_events=True, pad=(0,0), key = "finalML8")]])]]
+chapterTab9 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, sbar_width=20,
+        sbar_arrow_width=20, enable_events=True, pad=(0,0), key = "finalML9")]])]]
+chapterTab10 = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, sbar_width=20,
+        sbar_arrow_width=20, enable_events=True, pad=(0,0), key = "finalML10")]])]]
+prologue = [[sg.Column([[Multiline("", size=(130, 52), border_width=0, sbar_width=20,
+        sbar_arrow_width=20, enable_events=True, pad=(0,0), key = "prologue")]])]]
 
 sheets = [[
                 # MAIN TAB (API CONTROLS, SOURCE AND RETURNED DATA)
@@ -307,8 +407,9 @@ sheets = [[
 
                 # INPUTS
                 sg.Column([[
-                sg.DropDown(testObjectData, default_value="None")],
-                [sg.DropDown(authorReferenceList, key = "authors", default_value="Anne Rice")],
+                sg.DropDown(testObjectData, default_value="None", size=(31, 1)), sg.Button("update", border_width=0), sg.Button("+", border_width=0), sg.Button("-", border_width=0)],
+                [sg.DropDown(authorReferenceList, key = "authors", default_value="Anne Rice", size=(31, 1)),
+                            sg.Button("update", border_width=0), sg.Button("+", border_width=0), sg.Button("-", border_width=0)],
                 [sg.InputText("Nothing Specific", border_width=0, key = "moods")],
                 # [sg.InputText("", border_width=0)],
                 [sg.DropDown([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], default_value=1, key = "iterations")],
@@ -326,35 +427,39 @@ sheets = [[
                                            orientation="horizontal", border_width=0, pad=(0,0), key = "frequency")],
 
                 [sg.Slider(default_value=50, range=(1, 2048), size=(35, 6),
-                           orientation="horizontal", border_width=0, pad=(0,0), key = "tokens")],
+                           orientation="horizontal", border_width=0, pad=(0,0), enable_events=True, key = "tokens")],
                 [sg.DropDown(["No", "A few", "Some", "A lot of"], default_value="No", key = "spellingErrors")],
                 [sg.DropDown(["No", "A few", "Some", "A lot of"], default_value="No", key = "spacesErrors")],
                 [sg.InputText("Do not repeat exactly what I've written in the passage. Write it in an illustrious manner, add deep meaningful words but do not use the same meaningful word more than once..", border_width=0, key = "queryAppend")],
-                [sg.Slider(default_value=1, range=(1, 6), size=(35,6), orientation="horizontal", key = "generateImagesCount")],
+                [sg.Slider(default_value=1, range=(1, 6), size=(35,6), orientation="horizontal", enable_events=True, key = "generateImagesCount")],
                 [sg.Text("Curr:"), sg.Text("1234567890", key = "sessionID"), sg.Text("Wipe:"),
                  sg.DropDown(["1234567890", "0987654321", "123456098765", "1029384756"], default_value="1234567890", key = "sessionIDOverride")],
                 []
                 # TODO: Add button for creating a new chapter / and workflow to load and switch chapters and book titles
                            # TODO: Title and chapter should be a dropdown of historical saves - Load button loads the selection
-                           ], vertical_alignment="top")], [sg.Multiline("", size=(74,10), key = "sourceML")],
+                           ], vertical_alignment="top")], [Multiline("", size=(71,14), enable_events=True, key = "sourceML")],
 
                     [sg.Column([[sg.Image(key = "image_1", data=chamberPortraits.maid, subsample=4, enable_events=True),
                                  sg.Image(key = "image_2", data=chamberPortraits.unicorn, subsample=4, enable_events=True)],
                                  [sg.Image(key = "image_3", data=chamberPortraits.snails, subsample=4, enable_events=True),
                                   sg.Image(key = "image_4", data=chamberPortraits.snails, subsample=4, enable_events=True)],
                                 [sg.Image(key = "image_5", data=chamberPortraits.snails, subsample=4, enable_events=True),
-                                 sg.Image(key = "image_6", data=chamberPortraits.snails, subsample=4, enable_events=True)]], key="imageColumn", size=(524, 230), expand_x=True, expand_y=True, scrollable=True, vertical_scroll_only=True)
+                                 sg.Image(key = "image_6", data=chamberPortraits.snails, subsample=4, enable_events=True)],[
+                                    sg.Text("Estimated / Total Query Costs: 0.14 / 3.58")
+                                 ]], key="imageColumn", size=(524, 230), expand_x=True, expand_y=True, scrollable=True, vertical_scroll_only=True)],[
+                                sg.Text("Costs:"), sg.Text("0.14", key="tokenTotals"), sg.Text("Tokens: ", key="tokenCount"),
+                                sg.Text("Req+Res Totals: "), sg.Text("0", key = "reqresTotals"), sg.Text("Images: "), sg.Text("0", key = "imageCost")
                 ]], vertical_alignment="top"),
 
-                sg.Column([[sg.TabGroup([[sg.Tab("Cover", cover),sg.Tab("Synopsis", introSynopsis), sg.Tab("Preface", preface), sg.Tab("Chapter 1", chapterTab1), sg.Tab("Chapter 2", chapterTab2), sg.Tab("Chapter 3", chapterTab3)
+                sg.Column([[sg.TabGroup([[sg.Tab("Chars", charBuilder), sg.Tab("Envs", envBuilder), sg.Tab("Cover", cover),sg.Tab("Syn", introSynopsis), sg.Tab("Pref", preface), sg.Tab("Chapter 1", chapterTab1), sg.Tab("Chapter 2", chapterTab2), sg.Tab("Chapter 3", chapterTab3)
                                           , sg.Tab("Chapter 4", chapterTab4)
                                           , sg.Tab("Chapter 5", chapterTab5)
                                           , sg.Tab("Chapter 6", chapterTab6)
                                           , sg.Tab("Chapter 7", chapterTab7)
                                           , sg.Tab("Chapter 8", chapterTab8)
                                           , sg.Tab("Chapter 9", chapterTab9)
-                                          , sg.Tab("Chapter 10", chapterTab10), sg.Tab("Prologue", prologue)]])],
-                [sg.Text("Words/Pages/Images: 0000/0000/0000", justification="right")],[
+                                          , sg.Tab("Chapter 10", chapterTab10), sg.Tab("Pro", prologue)]])],
+                [sg.Column([[sg.Text("Current Words/Pages/Images: 0000/0000/0000, Global Words/Pages/Images: 0000/0000/0000", justification="right")]], justification="right", element_justification="right")],[
                 # sg.Column([[Multiline("", size=(130, 52), border_width=0, pad=(0,0), key = "finalML")],[
                 # sg.Text("Font Size:"), sg.Slider(default_value=12, range=(3, 22), orientation="horizontal",
                 #                                 change_submits=True, key = "fontSize")
@@ -364,24 +469,49 @@ sheets = [[
                 # TODO: Add numbers to multiline, as well as image insertion
 
 ]]
-
-topDrawer = [[sg.Column([[sg.Text("Title:"), sg.InputText("", border_width=0, size=(40,1)),
-                          sg.Text("Chapter:"), sg.InputText("", size=(10,1), border_width=0), sg.Button("New Chapter", key = "newChapter", border_width=0),
+projectTitles = ["Test Project", "Another Test Project"]
+topDrawer = [[sg.Column([[sg.Text("Project Title:"), sg.Combo(projectTitles, size=(40,1)),
+                          # sg.Text("Chapter:"), sg.InputText("", size=(10,1), border_width=0), sg.Button("New Chapter", key = "newChapter", border_width=0),
                           sg.Button("Clean", key = "clean", border_width=0), sg.Button("Reclean", key = "Reclean", border_width=0),
                           sg.Button("Save", border_width=0), sg.Button("Load", border_width=0), sg.Button("Save Session", key = "ss", border_width=0),
                           sg.Button("Load Session", key="ls", border_width=0), sg.Button("Connect", key="connect", border_width=0),
                           sg.Checkbox("Save Concurrently", default=True, key="saveAll")]], element_justification="right", justification="left")]]
 
-tabLayout = [[topDrawer, sg.TabGroup([[sg.Tab("Sheets", sheets), sg.Tab("Characters", charBuilder), sg.Tab("Environments", envBuilder)]])]]
+tabLayout = [[topDrawer, sg.TabGroup([[sg.Tab("Sheets", sheets)]])]]
 chamberWindow = sg.Window(title = "Chamber Maid", layout = tabLayout, location = (0,0), border_depth=0, element_padding=1, finalize=True)
 
 multiline = chamberWindow['finalML']
+# chamberWindow['finalML'].initial(chamberWindow, width=4, bg='#202020', fg='#808080')
+
+input_key_list = [key for key, value in chamberWindow.key_dict.items()]
+for x in input_key_list:
+    if str(x).startswith("finalML") or str(x).startswith("sourceML") or str(x).startswith("prologuedf") or str(x).startswith("cover") or str(x).startswith("preface")\
+            or str(x).startswith("pro"):
+        chamberWindow[str(x)].initial(chamberWindow, width=1, bg='#202020', fg='#808080')
+
+maid = Maid(os.getenv("chamberKey"), os.getenv("chamberOrg"))
+
+prompt="Rewrite the following passage in the style of, with undertones of. It should include spelling errors," \
+       " and between words use double spaces. Include the following words: . Here is the passage: "
 
 while True:
     b, v, = chamberWindow.Read()
 
     if b == "clean":
         maid.curlSheets()
+
+    # input_key_list = [key for key, value in chamberWindow.key_dict.items()]
+    # input_value_list = [value for key, value in chamberWindow.key_dict.items()]
+    # print(chamberWindow[0].Value)
+
+    # for x in input_key_list:
+    #     if str(x).isalpha():
+    #         try:
+    #             print(x, v[str(x)])
+    #         except:
+    #             pass
+    # print(input_value_list)
+
 
     if b.startswith("image_1"):
         # index = int(b.split()[-1])
@@ -453,3 +583,26 @@ while True:
 
     if v == sg.WINDOW_CLOSED:
         break
+
+    elif b.startswith("sourceML") or b.startswith("tokens") or b.startswith("generateImagesCount"):
+    # try:
+        totalTokens = maid.num_tokens_from_string(texts=v['sourceML'] + v['queryAppend'] + v['authors']
+                                                        + v['moods'] + v['spellingErrors'] + v['spacesErrors']
+                                                        + v['includeWords'] + prompt, encoding_name="cl100k_base") # TODO: abstract model / encoding options
+        chamberWindow['tokenCount'].update("Req Tokens: {}".format(totalTokens))
+        chamberWindow['reqresTotals'].update("{}".format(totalTokens + v['tokens']))
+        if totalTokens >= 4096: # TODO: abstract max to various model requirements
+            chamberWindow['tokenCount'].update("Req Tokens: {}".format(totalTokens), text_color="red")
+        imageCosts = round(decimal.Decimal(v['generateImagesCount'] / 1000 * 0.02), 6)
+        addBoth = totalTokens + v['tokens']
+        chamberWindow['tokenTotals'].update(round(decimal.Decimal(addBoth / 1000 * 0.002), 6))
+
+        chamberWindow['imageCost'].update(round(decimal.Decimal(v['generateImagesCount'] / 1000 * 0.02), 6))
+
+        # print("Processed Tokens... {}".format(round(decimal.Decimal(totalTokens / 1000 * 0.002), 6)))
+    # except:
+        print("Maid has not entered the Chambers...")
+
+    elif b.startswith("finalML") or b.startswith("sourceML") or b.startswith("prologuedf") or b.startswith("cover")\
+            or b.startswith("preface") or b.startswith("pro"):
+        chamberWindow[b].reset()
